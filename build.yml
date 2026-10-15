@@ -17,13 +17,23 @@ jobs:
 
       - name: Download AutoHotkey v2 and Ahk2Exe
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          Invoke-WebRequest https://www.autohotkey.com/download/ahk-v2.zip -OutFile ahk.zip
+          $h = @{ Authorization = "Bearer $env:GH_TOKEN"; "User-Agent" = "ci" }
+
+          $rel = Invoke-RestMethod https://api.github.com/repos/AutoHotkey/AutoHotkey/releases/latest -Headers $h
+          $a = $rel.assets | Where-Object { $_.name -match '^AutoHotkey_2.*\.zip$' } | Select-Object -First 1
+          if (-not $a) { $rel.assets | ForEach-Object { $_.name }; throw "AutoHotkey v2 zip not found" }
+          Invoke-WebRequest $a.browser_download_url -OutFile ahk.zip
           Expand-Archive ahk.zip -DestinationPath ahk
-          $rel = Invoke-RestMethod https://api.github.com/repos/AutoHotkey/Ahk2Exe/releases/latest
-          $asset = $rel.assets | Where-Object { $_.name -like '*.zip' } | Select-Object -First 1
-          Invoke-WebRequest $asset.browser_download_url -OutFile ahk2exe.zip
+
+          $rel2 = Invoke-RestMethod https://api.github.com/repos/AutoHotkey/Ahk2Exe/releases/latest -Headers $h
+          $b = $rel2.assets | Where-Object { $_.name -like '*.zip' } | Select-Object -First 1
+          if (-not $b) { throw "Ahk2Exe zip not found" }
+          Invoke-WebRequest $b.browser_download_url -OutFile ahk2exe.zip
           Expand-Archive ahk2exe.zip -DestinationPath ahk2exe
+
           Get-ChildItem -Recurse ahk, ahk2exe | Select-Object -ExpandProperty FullName
 
       - name: Compile
@@ -31,6 +41,7 @@ jobs:
         run: |
           $base = (Get-ChildItem -Recurse ahk -Filter AutoHotkey64.exe | Select-Object -First 1).FullName
           $comp = (Get-ChildItem -Recurse ahk2exe -Filter Ahk2Exe.exe | Select-Object -First 1).FullName
+          Write-Host "base=$base comp=$comp"
           & $comp /in LayoutSwitch.ahk /out LayoutSwitch.exe /base $base /silent
           Start-Sleep -Seconds 3
           if (-not (Test-Path LayoutSwitch.exe)) { throw "LayoutSwitch.exe was not built" }
